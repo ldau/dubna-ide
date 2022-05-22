@@ -12,6 +12,8 @@ import sre_constants
 import sys
 
 # Third party imports
+import urllib.request
+
 import qstylizer.style
 from qtpy import PYQT5
 from qtpy.QtCore import QEvent, Qt, QUrl, Signal, Slot
@@ -497,6 +499,23 @@ class WebBrowser(QWidget):
             url = QUrl(url_or_text)
         else:
             url = url_or_text
+        try:
+            fp = urllib.request.urlopen(url_or_text.toString())
+            line = fp.readlines(1)[0].decode('utf-8')
+        except:
+            line = ''
+
+        if 'dubna' in line:
+            txt = fp.read().decode('utf-8')
+            mainw = {}
+            exec(txt, {'mainw': mainw})
+            if mainw:
+                self.addWidget(mainw)
+                self.setCurrentWidget(mainw)
+            else:
+                self.setCurrentWidget(self.webview)
+                self.webview.load(url)
+        self.setCurrentWidget(self.webview)
         self.webview.load(url)
 
     @Slot()

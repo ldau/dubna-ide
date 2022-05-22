@@ -40,6 +40,10 @@ PORT = 30128
 class PydocBrowserActions:
     # Triggers
     Home = 'home_action'
+    Max = 'maximize_action'
+    Min = 'minimize_action'
+    Close = 'close_action'
+    Normal = 'normal_action'
     Find = 'find_action'
 
 
@@ -48,7 +52,6 @@ class PydocBrowserMainToolbarSections:
 
 
 class PydocBrowserToolbarItems:
-    PackageLabel = 'package_label'
     UrlCombo = 'url_combo'
 
 
@@ -89,7 +92,6 @@ class PydocServer(QThread):
     def run(self):
         self.callback(
             _start_server(
-                _url_handler,
                 hostname='127.0.0.1',
                 port=self.port,
             )
@@ -143,10 +145,9 @@ class PydocBrowser(PluginMainWidget):
         self._is_running = False
         self.home_url = None
         self.server = None
+        self.mainw = parent
 
         # Widgets
-        self.label = QLabel(_("Package:"))
-        self.label.ID = PydocBrowserToolbarItems.PackageLabel
 
         self.url_combo = UrlComboBox(
             self, id_=PydocBrowserToolbarItems.UrlCombo)
@@ -194,6 +195,28 @@ class PydocBrowser(PluginMainWidget):
 
     def setup(self):
         # Actions
+        window_minimize_action = self.create_action(
+            PydocBrowserActions.Min,
+            text=_("window_minimize"),
+            tip=_("Minimize"),
+            icon=self.create_icon('wminimize'),
+            triggered=self.window_minimize,
+        )
+        window_maximize_action = self.create_action(
+            PydocBrowserActions.Max,
+            text=_("window_maximize"),
+            tip=_("Maximize"),
+            icon=self.create_icon('newwindow'),
+            triggered=self.window_maximize,
+        )
+        window_close_action = self.create_action(
+            PydocBrowserActions.Close,
+            text=_("window_close"),
+            tip=_("Close"),
+            icon=self.create_icon('wclose'),
+            triggered=self.window_close,
+        )
+
         home_action = self.create_action(
             PydocBrowserActions.Home,
             text=_("Home"),
@@ -216,9 +239,10 @@ class PydocBrowser(PluginMainWidget):
         toolbar = self.get_main_toolbar()
         for item in [self.get_action(WebViewActions.Back),
                      self.get_action(WebViewActions.Forward), refresh_action,
-                     stop_action, home_action, self.label, self.url_combo,
-                     self.get_action(WebViewActions.ZoomIn),
-                     self.get_action(WebViewActions.ZoomOut), find_action,
+                     stop_action, self.url_combo,
+                     #self.get_action(WebViewActions.ZoomIn),
+                     #self.get_action(WebViewActions.ZoomOut), find_action,
+                     window_minimize_action, window_maximize_action, window_close_action
                      ]:
             self.add_item_to_toolbar(
                 item,
@@ -451,6 +475,27 @@ class PydocBrowser(PluginMainWidget):
         """
         if self.home_url is not None:
             self.set_url(self.home_url)
+
+    @Slot()
+    def window_close(self):
+        """
+        Go to home page.
+        """
+        self.mainw.close()
+
+    @Slot()
+    def window_maximize(self):
+        """
+        Go to home page.
+        """
+        self.mainw.showMaximized()
+
+    @Slot()
+    def window_minimize(self):
+        """
+        Go to home page.
+        """
+        self.mainw.showMinimized()
 
     def get_zoom_factor(self):
         """

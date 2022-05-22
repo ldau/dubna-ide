@@ -401,7 +401,7 @@ class IPythonConsoleWidget(PluginMainWidget):
     # ---- PluginMainWidget API and settings handling
     # ------------------------------------------------------------------------
     def get_title(self):
-        return _('IPython Console')
+        return _('ipython')
 
     def get_focus_widget(self):
         client = self.tabwidget.currentWidget()

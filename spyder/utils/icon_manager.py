@@ -206,6 +206,8 @@ class IconManager():
             'browse_tab':              [('mdi.tab',), {'color': self.MAIN_FG_COLOR}],
             'filelist':                [('mdi.view-list',), {'color': self.MAIN_FG_COLOR}],
             'newwindow':               [('mdi.window-maximize',), {'color': self.MAIN_FG_COLOR}],
+            'wminimize':               [('mdi.window-minimize',), {'color': self.MAIN_FG_COLOR}],
+            'wclose':                  [('mdi.window-close',), {'color': self.MAIN_FG_COLOR}],
             'close_panel':             [('mdi.close-box-outline',), {'color': self.MAIN_FG_COLOR}],
             'fromcursor':              [('mdi.cursor-pointer',), {'color': self.MAIN_FG_COLOR, 'rotated': 90}],
             'filter':                  [('mdi.filter',), {'color': self.MAIN_FG_COLOR}],

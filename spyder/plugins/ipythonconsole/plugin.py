@@ -212,7 +212,7 @@ class IPythonConsole(SpyderDockablePlugin):
     # -------------------------------------------------------------------------
     @staticmethod
     def get_name():
-        return _('IPython console')
+        return _('ipython')
 
     def get_description(self):
         return _('IPython console')

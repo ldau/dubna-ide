@@ -36,6 +36,8 @@ import traceback
 #==============================================================================
 # Check requirements before proceeding
 #==============================================================================
+from PyQt5.QtWidgets import QMenuBar
+
 from spyder import requirements
 requirements.check_path()
 requirements.check_qt()
@@ -51,7 +53,7 @@ from qtpy.QtWidgets import (QApplication, QMainWindow, QMenu, QMessageBox,
                             QShortcut, QStyleFactory)
 
 # Avoid a "Cannot mix incompatible Qt library" error on Windows platforms
-from qtpy import QtSvg  # analysis:ignore
+from qtpy import QtSvg, QtCore, QtWidgets  # analysis:ignore
 
 # Avoid a bug in Qt: https://bugreports.qt.io/browse/QTBUG-46720
 from qtpy import QtWebEngineWidgets  # analysis:ignore
@@ -119,11 +121,68 @@ logger = logging.getLogger(__name__)
 #==============================================================================
 qInstallMessageHandler(qt_message_handler)
 
+
+class SideGrip(QtWidgets.QWidget):
+    def __init__(self, parent, edge):
+        QtWidgets.QWidget.__init__(self, parent)
+        if edge == QtCore.Qt.LeftEdge:
+            self.setCursor(QtCore.Qt.SizeHorCursor)
+            self.resizeFunc = self.resizeLeft
+        elif edge == QtCore.Qt.TopEdge:
+            self.setCursor(QtCore.Qt.SizeVerCursor)
+            self.resizeFunc = self.resizeTop
+        elif edge == QtCore.Qt.RightEdge:
+            self.setCursor(QtCore.Qt.SizeHorCursor)
+            self.resizeFunc = self.resizeRight
+        else:
+            self.setCursor(QtCore.Qt.SizeVerCursor)
+            self.resizeFunc = self.resizeBottom
+        self.mousePos = None
+
+    def resizeLeft(self, delta):
+        window = self.window()
+        width = max(window.minimumWidth(), window.width() - delta.x())
+        geo = window.geometry()
+        geo.setLeft(geo.right() - width)
+        window.setGeometry(geo)
+
+    def resizeTop(self, delta):
+        window = self.window()
+        height = max(window.minimumHeight(), window.height() - delta.y())
+        geo = window.geometry()
+        geo.setTop(geo.bottom() - height)
+        window.setGeometry(geo)
+
+    def resizeRight(self, delta):
+        window = self.window()
+        width = max(window.minimumWidth(), window.width() + delta.x())
+        window.resize(width, window.height())
+
+    def resizeBottom(self, delta):
+        window = self.window()
+        height = max(window.minimumHeight(), window.height() + delta.y())
+        window.resize(window.width(), height)
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.mousePos = event.pos()
+
+    def mouseMoveEvent(self, event):
+        if self.mousePos is not None:
+            delta = event.pos() - self.mousePos
+            self.resizeFunc(delta)
+
+    def mouseReleaseEvent(self, event):
+        self.mousePos = None
+
+
+
 #==============================================================================
 # Main Window
 #==============================================================================
 class MainWindow(QMainWindow):
     """Spyder main window"""
+    _gripSize = 8
     DOCKOPTIONS = (
         QMainWindow.AllowTabbedDocks | QMainWindow.AllowNestedDocks |
         QMainWindow.AnimatedDocks
@@ -157,6 +216,10 @@ class MainWindow(QMainWindow):
             raise SpyderAPIError(f'Plugin "{plugin_name}" not found!')
 
         return None
+
+    def addToolBar(self, toolbar):
+        print(toolbar)
+        pass
 
     def get_dockable_plugins(self):
         """Get a list of all dockable plugins."""
@@ -514,6 +577,7 @@ class MainWindow(QMainWindow):
     def __init__(self, splash=None, options=None):
         QMainWindow.__init__(self)
         qapp = QApplication.instance()
+        self.mm = None
 
         if running_under_pytest():
             self._proxy_style = None
@@ -746,6 +810,11 @@ class MainWindow(QMainWindow):
                     shortcut = QKeySequence()
 
                 action.setShortcut(shortcut)
+
+    def menuBar(self) -> 'QMenuBar':
+        if self.mm is None:
+            self.mm = QMenuBar()
+        return self.mm
 
     def setup(self):
         """Setup main window."""
@@ -1048,6 +1117,118 @@ class MainWindow(QMainWindow):
         # Emitting the signal notifying plugins that main window menu and
         # toolbar actions are all defined:
         self.all_actions_defined.emit()
+        self.setCentralWidget(PLUGIN_REGISTRY.get_plugin('onlinehelp').get_widget())
+        self.setWindowFlags(Qt.FramelessWindowHint)
+        # self.titleBar = MyBar(self)
+
+        # self.setContentsMargins(0, self.titleBar.height(), 0, 0)
+
+        # self.resize(640, self.titleBar.height() + 480)
+
+        # def changeEvent(self, event):
+        #     if event.type() == event.WindowStateChange:
+        #         self.titleBar.windowStateChanged(self.windowState())
+        #
+        # def resizeEvent(self, event):
+        #     self.titleBar.resize(self.width(), self.titleBar.height())
+        #
+        # def mousePressEvent(self, event):
+        #     if event.button() == QtCore.Qt.LeftButton:
+        #         self.offset = event.pos()
+        #     else:
+        #         super().mousePressEvent(event)
+        #
+        # def mouseMoveEvent(self, event):
+        #     if self.offset is not None and event.buttons() == QtCore.Qt.LeftButton:
+        #         self.move(self.pos() + event.pos() - self.offset)
+        #     else:
+        #         super().mouseMoveEvent(event)
+        #
+        # def mouseReleaseEvent(self, event):
+        #     self.offset = None
+        #     super().mouseReleaseEvent(event)
+        # self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
+
+        self.sideGrips = [
+            SideGrip(self, QtCore.Qt.LeftEdge),
+            SideGrip(self, QtCore.Qt.TopEdge),
+            SideGrip(self, QtCore.Qt.RightEdge),
+            SideGrip(self, QtCore.Qt.BottomEdge),
+        ]
+        # corner grips should be "on top" of everything, otherwise the side grips
+        # will take precedence on mouse events, so we are adding them *after*;
+        # alternatively, widget.raise_() can be used
+        self.cornerGrips = [QtWidgets.QSizeGrip(self) for i in range(4)]
+        #self.updateGrips()
+        self.statusBar().setSizeGripEnabled(True)
+        self.offset = None
+        self.statusBar().hide()
+
+    def mousePressEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            self.offset = event.pos()
+        else:
+            super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if self.offset is not None and event.buttons() == QtCore.Qt.LeftButton:
+            self.move(self.pos() + event.pos() - self.offset)
+        else:
+            super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        self.offset = None
+        super().mouseReleaseEvent(event)
+
+    @property
+    def gripSize(self):
+        return self._gripSize
+
+    def setGripSize(self, size):
+        if size == self._gripSize:
+            return
+        self._gripSize = max(2, size)
+        self.updateGrips()
+
+    def updateGrips(self):
+        self.setContentsMargins(*[self.gripSize] * 4)
+
+        outRect = self.rect()
+        # an "inner" rect used for reference to set the geometries of size grips
+        inRect = outRect.adjusted(self.gripSize, self.gripSize,
+            -self.gripSize, -self.gripSize)
+
+        # top left
+        self.cornerGrips[0].setGeometry(
+            QtCore.QRect(outRect.topLeft(), inRect.topLeft()))
+        # top right
+        self.cornerGrips[1].setGeometry(
+            QtCore.QRect(outRect.topRight(), inRect.topRight()).normalized())
+        # bottom right
+        self.cornerGrips[2].setGeometry(
+            QtCore.QRect(inRect.bottomRight(), outRect.bottomRight()))
+        # bottom left
+        self.cornerGrips[3].setGeometry(
+            QtCore.QRect(outRect.bottomLeft(), inRect.bottomLeft()).normalized())
+
+        # left edge
+        self.sideGrips[0].setGeometry(
+            0, inRect.top(), self.gripSize, inRect.height())
+        # top edge
+        self.sideGrips[1].setGeometry(
+            inRect.left(), 0, inRect.width(), self.gripSize)
+        # right edge
+        self.sideGrips[2].setGeometry(
+            inRect.left() + inRect.width(),
+            inRect.top(), self.gripSize, inRect.height())
+        # bottom edge
+        self.sideGrips[3].setGeometry(
+            self.gripSize, inRect.top() + inRect.height(),
+            inRect.width(), self.gripSize)
+
+    def resizeEvent(self, event):
+        QtWidgets.QMainWindow.resizeEvent(self, event)
+        self.updateGrips()
 
     def __getattr__(self, attr):
         """
@@ -1323,7 +1504,7 @@ class MainWindow(QMainWindow):
         for plugin in self.widgetlist + self.thirdparty_plugins:
             if plugin.CONF_SECTION == 'editor':
                 editorstack = self.editor.get_current_editorstack()
-                editorstack.menu.hide()
+                #editorstack.menu.hide()
             else:
                 try:
                     # New API
@@ -1437,24 +1618,25 @@ class MainWindow(QMainWindow):
             event.accept()
         else:
             event.ignore()
+    #
+    # def resizeEvent(self, event):
+    #     """Reimplement Qt method"""
+    #     if not self.isMaximized() and not self.layouts.get_fullscreen_flag():
+    #         self.window_size = self.size()
+    #     QMainWindow.resizeEvent(self, event)
+    #
+    #     # To be used by the tour to be able to resize
+    #     self.sig_resized.emit(event)
+    #     self.updateGrips()
 
-    def resizeEvent(self, event):
-        """Reimplement Qt method"""
-        if not self.isMaximized() and not self.layouts.get_fullscreen_flag():
-            self.window_size = self.size()
-        QMainWindow.resizeEvent(self, event)
-
-        # To be used by the tour to be able to resize
-        self.sig_resized.emit(event)
-
-    def moveEvent(self, event):
-        """Reimplement Qt method"""
-        if hasattr(self, 'layouts'):
-            if not self.isMaximized() and not self.layouts.get_fullscreen_flag():
-                self.window_position = self.pos()
-        QMainWindow.moveEvent(self, event)
-        # To be used by the tour to be able to move
-        self.sig_moved.emit(event)
+    # def moveEvent(self, event):
+    #     """Reimplement Qt method"""
+    #     if hasattr(self, 'layouts'):
+    #         if not self.isMaximized() and not self.layouts.get_fullscreen_flag():
+    #             self.window_position = self.pos()
+    #     QMainWindow.moveEvent(self, event)
+    #     # To be used by the tour to be able to move
+    #     self.sig_moved.emit(event)
 
     def hideEvent(self, event):
         """Reimplement Qt method"""

@@ -257,6 +257,7 @@ class Editor(SpyderPluginWidget, SpyderConfigurationObserver):
         editor_widgets.setLayout(editor_layout)
         self.editorsplitter = EditorSplitter(self, self,
                                          self.stack_menu_actions, first=True)
+        editor_layout.addWidget(self.main.menuBar())
         editor_layout.addWidget(self.editorsplitter)
         editor_layout.addWidget(self.find_widget)
 

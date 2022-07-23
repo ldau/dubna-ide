@@ -11,29 +11,26 @@ Spyder kernel for Jupyter.
 """
 
 # Standard library imports
-from distutils.version import LooseVersion
+import faulthandler
 import logging
 import os
 import sys
+import traceback
 import threading
 
 # Third-party imports
-import ipykernel
 from ipykernel.ipkernel import IPythonKernel
 from traitlets.config.loader import LazyConfigValue
+from zmq.utils.garbage import gc
 
 # Local imports
-from spyder_kernels.py3compat import (
-    TEXT_TYPES, to_text_string, PY3, input, TimeoutError)
-from spyder_kernels.comms.frontendcomm import FrontendComm, CommError
+from spyder_kernels.comms.frontendcomm import FrontendComm
 from spyder_kernels.utils.iofuncs import iofunctions
 from spyder_kernels.utils.mpl import (
     MPL_BACKENDS_FROM_SPYDER, MPL_BACKENDS_TO_SPYDER, INLINE_FIGURE_FORMATS)
 from spyder_kernels.utils.nsview import get_remote_data, make_remote_view
 from spyder_kernels.console.shell import SpyderShell
 
-if PY3:
-    import faulthandler
 
 
 logger = logging.getLogger(__name__)
@@ -88,6 +85,7 @@ class SpyderKernel(IPythonKernel):
             '_interrupt_eventloop': self._interrupt_eventloop,
             'enable_faulthandler': self.enable_faulthandler,
             "flush_std": self.flush_std,
+            'get_current_frames': self.get_current_frames,
             }
         for call_id in handlers:
             self.frontend_comm.register_call_handler(
@@ -96,8 +94,11 @@ class SpyderKernel(IPythonKernel):
         self.namespace_view_settings = {}
         self._mpl_backend_error = None
         self._running_namespace = None
-        self._pdb_input_line = None
         self.faulthandler_handle = None
+
+        self.control_handlers['comm_msg'] = self.control_comm_msg
+        self.control_handlers['complete_request'] = self.shell_handlers[
+            'complete_request']
 
     # -- Public API -----------------------------------------------------------
     def do_shutdown(self, restart):
@@ -130,9 +131,6 @@ class SpyderKernel(IPythonKernel):
         Open a file to save the faulthandling and identifiers for
         internal threads.
         """
-        if not PY3:
-            # Not implemented
-            return
         self.disable_faulthandler()
         f = open(fn, 'w')
         self.faulthandler_handle = f
@@ -148,20 +146,78 @@ class SpyderKernel(IPythonKernel):
         """
         Cancel the faulthandling, close the file handle and remove the file.
         """
-        if not PY3:
-            # Not implemented
-            return
         if self.faulthandler_handle:
             faulthandler.disable()
             self.faulthandler_handle.close()
             self.faulthandler_handle = None
+
+    def get_system_threads_id(self):
+        """Return the list of system threads id."""
+        ignore_threads = [
+            self.parent.poller,  # Parent poller
+            self.shell.history_manager.save_thread,  # history
+            self.parent.heartbeat,  # heartbeat
+            self.parent.iopub_thread.thread,  # iopub
+            gc.thread,  # ZMQ garbage collector thread
+            self.parent.control_thread,  # control
+        ]
+        return [
+            thread.ident for thread in ignore_threads if thread is not None]
+
+    def filter_stack(self, stack, is_main):
+        """Return the part of the stack the user needs to see."""
+        # Remove wurlitzer frames
+        for frame_summary in stack:
+            if "wurlitzer.py" in frame_summary.filename:
+                return
+        # Cleanup main thread
+        if is_main:
+            start_idx = -1
+            for idx in range(len(stack)):
+                if stack[idx].filename.endswith(
+                        ("IPython/core/interactiveshell.py",
+                         "IPython\\core\\interactiveshell.py")):
+                    start_idx = idx + 1
+            if start_idx != -1:
+                stack = stack[start_idx:]
+            else:
+                stack = []
+        return stack
+
+    def get_current_frames(self, ignore_internal_threads=True,
+                           capture_locals=False):
+        """Get the current frames."""
+        ignore_list = self.get_system_threads_id()
+        main_id = threading.main_thread().ident
+        frames = {}
+        thread_names = {thread.ident: thread.name
+                        for thread in threading.enumerate()}
+
+        for thread_id, frame in sys._current_frames().items():
+            stack = traceback.StackSummary.extract(
+                traceback.walk_stack(frame))
+            if capture_locals:
+                for f_summary, f in zip(stack, traceback.walk_stack(frame)):
+                    f_summary.locals = self.get_namespace_view(frame=f[0])
+            stack.reverse()
+            if ignore_internal_threads:
+                if thread_id in ignore_list:
+                    continue
+                stack = self.filter_stack(stack, main_id == thread_id)
+            if stack is not None:
+                if thread_id in thread_names:
+                    thread_name = thread_names[thread_id]
+                else:
+                    thread_name = str(thread_id)
+                frames[thread_name] = stack
+        return frames
 
     # --- For the Variable Explorer
     def set_namespace_view_settings(self, settings):
         """Set namespace_view_settings."""
         self.namespace_view_settings = settings
 
-    def get_namespace_view(self):
+    def get_namespace_view(self, frame=None):
         """
         Return the namespace view
 
@@ -190,7 +246,7 @@ class SpyderKernel(IPythonKernel):
 
         settings = self.namespace_view_settings
         if settings:
-            ns = self._get_current_namespace()
+            ns = self._get_current_namespace(frame=frame)
             view = make_remote_view(ns, settings, EXCLUDED_NAMES)
             return view
         else:
@@ -306,21 +362,6 @@ class SpyderKernel(IPythonKernel):
             return self.shell.pdb_session.do_complete(code, cursor_pos)
         return self._do_complete(code, cursor_pos)
 
-    def publish_pdb_state(self, step):
-        """
-        Publish Variable Explorer state and Pdb step through
-        send_spyder_msg.
-        """
-        state = dict(
-            namespace_view=self.get_namespace_view(),
-            var_properties=self.get_var_properties(),
-            step=step
-         )
-        try:
-            self.frontend_call(blocking=False).pdb_state(state)
-        except (CommError, TimeoutError):
-            logger.debug("Could not send Pdb state to the frontend.")
-
     def set_spyder_breakpoints(self, breakpoints):
         """
         Handle a message from the frontend
@@ -352,10 +393,10 @@ class SpyderKernel(IPythonKernel):
 
     def pdb_input_reply(self, line, echo_stack_entry=True):
         """Get a pdb command from the frontend."""
-        if self.shell.pdb_session:
-            self.shell.pdb_session._disable_next_stack_entry = (
-                not echo_stack_entry)
-        self._pdb_input_line = line
+        debugger = self.shell.pdb_session
+        if debugger:
+            debugger._disable_next_stack_entry = not echo_stack_entry
+            debugger._cmd_input_line = line
         if self.eventloop:
             # Interrupting the eventloop is only implemented when a message is
             # received on the shell channel, but this message is queued and
@@ -364,47 +405,6 @@ class SpyderKernel(IPythonKernel):
             # and request a dummy message to be sent on the shell channel to
             # stop the eventloop. This will call back `_interrupt_eventloop`.
             self.frontend_call().request_interrupt_eventloop()
-
-    def cmd_input(self, prompt=''):
-        """
-        Special input function for commands.
-        Runs the eventloop while debugging.
-        """
-        # Only works if the comm is open and this is a pdb prompt.
-        if not self.frontend_comm.is_open() or not self.shell.is_debugging():
-            return input(prompt)
-
-        # Flush output before making the request.
-        sys.stderr.flush()
-        sys.stdout.flush()
-
-        # Send the input request.
-        self._pdb_input_line = None
-        self.frontend_call().pdb_input(prompt)
-
-        # Allow GUI event loop to update
-        if PY3:
-            is_main_thread = (
-                threading.current_thread() is threading.main_thread())
-        else:
-            is_main_thread = isinstance(
-                threading.current_thread(), threading._MainThread)
-
-        # Get input by running eventloop
-        if is_main_thread and self.eventloop:
-            while self._pdb_input_line is None:
-                eventloop = self.eventloop
-                if eventloop:
-                    eventloop(self)
-                else:
-                    break
-
-        # Get input by blocking
-        if self._pdb_input_line is None:
-            self.frontend_comm.wait_until(
-                lambda: self._pdb_input_line is not None)
-
-        return self._pdb_input_line
 
     def _interrupt_eventloop(self):
         """Interrupts the eventloop."""
@@ -505,7 +505,7 @@ class SpyderKernel(IPythonKernel):
 
     def set_matplotlib_backend(self, backend, pylab=False):
         """Set matplotlib backend given a Spyder backend option."""
-        mpl_backend = MPL_BACKENDS_FROM_SPYDER[to_text_string(backend)]
+        mpl_backend = MPL_BACKENDS_FROM_SPYDER[str(backend)]
         self._set_mpl_backend(mpl_backend, pylab=pylab)
 
     def set_mpl_inline_figure_format(self, figure_format):
@@ -516,11 +516,7 @@ class SpyderKernel(IPythonKernel):
 
     def set_mpl_inline_resolution(self, resolution):
         """Set inline figure resolution."""
-        if LooseVersion(ipykernel.__version__) < LooseVersion('4.5'):
-            option = 'savefig.dpi'
-        else:
-            option = 'figure.dpi'
-        self._set_mpl_inline_rc_config(option, resolution)
+        self._set_mpl_inline_rc_config('figure.dpi', resolution)
 
     def set_mpl_inline_figure_size(self, width, height):
         """Set inline figure size."""
@@ -634,33 +630,46 @@ class SpyderKernel(IPythonKernel):
                 sys.path.remove(path)
 
         # Add new paths
-        # We do this in reverse order as we use `sys.path.insert(1, path)`.
-        # This ensures the end result has the correct path order.
-        for path, active in reversed(new_path_dict.items()):
-            if active:
-                sys.path.insert(1, path)
+        pypath = [path for path, active in new_path_dict.items() if active]
+        if pypath:
+            sys.path.extend(pypath)
+            os.environ.update({'PYTHONPATH': os.pathsep.join(pypath)})
+        else:
+            os.environ.pop('PYTHONPATH', None)
 
     # -- Private API ---------------------------------------------------
     # --- For the Variable Explorer
-    def _get_current_namespace(self, with_magics=False):
+    def _get_current_namespace(self, with_magics=False, frame=None):
         """
         Return current namespace
 
         This is globals() if not debugging, or a dictionary containing
         both locals() and globals() for current frame when debugging
         """
-        ns = {}
-        if self._running_namespace is None:
-            ns.update(self.shell.user_ns)
-        else:
-            # This is true when a file is executing.
-            running_globals, running_locals = self._running_namespace
-            ns.update(running_globals)
-            if running_locals is not None:
-                ns.update(running_locals)
+        if frame is not None:
+            ns = frame.f_globals.copy()
+            if self.shell._pdb_frame is frame:
+                ns.update(self.shell._pdb_locals)
+            else:
+                ns.update(frame.f_locals)
+            return ns
 
-        # Add debugging locals
-        ns.update(self.shell._pdb_locals)
+        ns = {}
+        if self.shell.is_debugging() and self.shell.pdb_session.prompt_waiting:
+            # Stopped at a pdb prompt
+            ns.update(self.shell.user_ns)
+            ns.update(self.shell._pdb_locals)
+        else:
+            # Give access to the running namespace if there is one
+            if self._running_namespace is None:
+                ns.update(self.shell.user_ns)
+            else:
+                # This is true when a file is executing.
+                running_globals, running_locals = self._running_namespace
+                ns.update(running_globals)
+                if running_locals is not None:
+                    ns.update(running_locals)
+
         # Add magics to ns so we can show help about them on the Help
         # plugin
         if with_magics:
@@ -747,9 +756,8 @@ class SpyderKernel(IPythonKernel):
         where *obj* is the object represented by *text*
         and *valid* is True if object evaluation did not raise any exception
         """
-        from spyder_kernels.py3compat import is_text_string
 
-        assert is_text_string(text)
+        assert isinstance(text, str)
         ns = self._get_current_namespace(with_magics=True)
         try:
             return eval(text, ns), True
@@ -837,7 +845,7 @@ class SpyderKernel(IPythonKernel):
         try:
             base_config = "{option} = "
             value_line = (
-                "'{value}'" if isinstance(value, TEXT_TYPES) else "{value}")
+                "'{value}'" if isinstance(value, str) else "{value}")
             config_line = base_config + value_line
             get_ipython().run_line_magic(
                 'config',
@@ -909,3 +917,21 @@ class SpyderKernel(IPythonKernel):
             return self.comm_manager.comms[comm_id]
         except KeyError:
             pass
+
+    def control_comm_msg(self, stream, ident, msg):
+        """
+        Handler for comm_msg messages from control channel.
+
+        If comm is not open yet, cache message.
+        """
+        content = msg['content']
+        comm_id = content['comm_id']
+        comm = self.comm_manager.get_comm(comm_id)
+        if comm is None:
+            self.frontend_comm.cache_message(comm_id, msg)
+            return
+        try:
+            comm.handle_msg(msg)
+        except Exception:
+            self.comm_manager.log.error(
+                'Exception in comm_msg for %s', comm_id, exc_info=True)

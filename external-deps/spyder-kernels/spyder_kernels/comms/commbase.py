@@ -59,13 +59,10 @@ import sys
 import uuid
 import traceback
 
-from spyder_kernels.py3compat import PY2, PY3
-
 
 logger = logging.getLogger(__name__)
 
-# To be able to get and set variables between Python 2 and 3
-DEFAULT_PICKLE_PROTOCOL = 2
+DEFAULT_PICKLE_PROTOCOL = 4
 
 # Max timeout (in secs) for blocking calls
 TIMEOUT = 3
@@ -132,7 +129,7 @@ def comm_excepthook(type, value, tb):
 sys.excepthook = comm_excepthook
 
 
-class CommBase(object):
+class CommBase:
     """
     Class with the necessary attributes and methods to handle
     communications between a kernel and a frontend.
@@ -309,15 +306,7 @@ class CommBase(object):
 
         # Load the buffer. Only one is supported.
         try:
-            if PY3:
-                # https://docs.python.org/3/library/pickle.html#pickle.loads
-                # Using encoding='latin1' is required for unpickling
-                # NumPy arrays and instances of datetime, date and time
-                # pickled by Python 2.
-                buffer = cloudpickle.loads(msg['buffers'][0],
-                                           encoding='latin-1')
-            else:
-                buffer = cloudpickle.loads(msg['buffers'][0])
+            buffer = cloudpickle.loads(msg['buffers'][0])
         except Exception as e:
             logger.debug(
                 "Exception in cloudpickle.loads : %s" % str(e))
@@ -404,18 +393,20 @@ class CommBase(object):
         if "pickle_highest_protocol" in call_dict:
             self._set_pickle_protocol(call_dict["pickle_highest_protocol"])
 
-    def _get_call_return_value(self, call_dict, call_data, comm_id):
+    def _send_call(self, call_dict, call_data, comm_id):
+        """Send call."""
+        call_dict = self.on_outgoing_call(call_dict)
+        self._send_message(
+            'remote_call', content=call_dict, data=call_data,
+            comm_id=comm_id)
+
+    def _get_call_return_value(self, call_dict, comm_id):
         """
         Send a remote call and return the reply.
 
         If settings['blocking'] == True, this will wait for a reply and return
         the replied value.
         """
-        call_dict = self.on_outgoing_call(call_dict)
-        self._send_message(
-            'remote_call', content=call_dict, data=call_data,
-            comm_id=comm_id)
-
         settings = call_dict['settings']
 
         blocking = 'blocking' in settings and settings['blocking']
@@ -432,7 +423,7 @@ class CommBase(object):
         else:
             timeout = TIMEOUT
 
-        self._wait_reply(call_id, call_name, timeout)
+        self._wait_reply(comm_id, call_id, call_name, timeout)
 
         reply = self._reply_inbox.pop(call_id)
 
@@ -441,7 +432,7 @@ class CommBase(object):
 
         return reply['value']
 
-    def _wait_reply(self, call_id, call_name, timeout):
+    def _wait_reply(self, comm_id, call_id, call_name, timeout):
         """
         Wait for the other side reply.
         """
@@ -496,7 +487,7 @@ class CommBase(object):
         error_wrapper.raise_error()
 
 
-class RemoteCallFactory(object):
+class RemoteCallFactory:
     """Class to create `RemoteCall`s."""
 
     def __init__(self, comms_wrapper, comm_id, callback, **settings):
@@ -554,5 +545,6 @@ class RemoteCall():
             logger.debug("Call to unconnected comm: %s" % self._name)
             return
         self._comms_wrapper._register_call(call_dict, self._callback)
+        self._comms_wrapper._send_call(call_dict, call_data, self._comm_id)
         return self._comms_wrapper._get_call_return_value(
-            call_dict, call_data, self._comm_id)
+            call_dict, self._comm_id)

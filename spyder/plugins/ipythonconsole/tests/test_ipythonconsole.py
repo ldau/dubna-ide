@@ -41,7 +41,7 @@ import sympy
 # Local imports
 from spyder.app.cli_options import get_options
 from spyder.config.base import (
-    get_home_dir, running_in_ci, running_in_ci_with_conda)
+    running_in_ci, running_in_ci_with_conda)
 from spyder.config.gui import get_color_scheme
 from spyder.config.manager import CONF
 from spyder.py3compat import PY2, to_text_string
@@ -219,9 +219,6 @@ def ipyconsole(qtbot, request, tmpdir):
                               is_cython=is_cython)
     window.setCentralWidget(console.get_widget())
 
-    # Return working directory from the plugin
-    console._get_working_directory = lambda: get_home_dir()
-
     # Set exclamation mark to True
     configuration.set('ipython_console', 'pdb_use_exclamation_mark', True)
 
@@ -312,8 +309,8 @@ def ipyconsole(qtbot, request, tmpdir):
         show_diff(init_threads, threads, "thread")
         sys.stderr.write("Running Threads stacks:\n")
         now_thread_ids = [t.ident for t in now_threads]
-        for threadId, frame in sys._current_frames().items():
-            if threadId in now_thread_ids:
+        for thread_id, frame in sys._current_frames().items():
+            if thread_id in now_thread_ids:
                 sys.stderr.write("\nThread " + str(threads) + ":\n")
                 traceback.print_stack(frame)
         raise
@@ -485,7 +482,8 @@ def test_pylab_client(ipyconsole, qtbot):
 
 @flaky(max_runs=3)
 @pytest.mark.sympy_client
-@pytest.mark.xfail('1.0' < sympy.__version__ < '1.2',
+@pytest.mark.xfail(parse_version('1.0') < parse_version(sympy.__version__) <
+                   parse_version('1.2'),
                    reason="A bug with sympy 1.1.1 and IPython-Qtconsole")
 def test_sympy_client(ipyconsole, qtbot):
     """Test that the SymPy console is working correctly."""
@@ -553,7 +551,7 @@ def test_cython_client(ipyconsole, qtbot):
 def test_tab_rename_for_slaves(ipyconsole, qtbot):
     """Test slave clients are renamed correctly."""
     cf = ipyconsole.get_current_client().connection_file
-    ipyconsole.get_widget()._create_client_for_kernel(cf, None, None, None)
+    ipyconsole.create_client_for_kernel(cf)
     qtbot.waitUntil(lambda: len(ipyconsole.get_clients()) == 2)
 
     # Rename slave
@@ -1216,7 +1214,7 @@ def test_load_kernel_file_from_id(ipyconsole, qtbot):
     connection_file = osp.basename(client.connection_file)
     id_ = connection_file.split('kernel-')[-1].split('.json')[0]
 
-    ipyconsole.get_widget()._create_client_for_kernel(id_, None, None, None)
+    ipyconsole.create_client_for_kernel(id_)
     qtbot.waitUntil(lambda: len(ipyconsole.get_clients()) == 2)
 
     new_client = ipyconsole.get_clients()[1]
@@ -1235,7 +1233,7 @@ def test_load_kernel_file_from_location(ipyconsole, qtbot, tmpdir):
     connection_file = to_text_string(tmpdir.join(fname))
     shutil.copy2(client.connection_file, connection_file)
 
-    ipyconsole.get_widget()._create_client_for_kernel(connection_file, None, None, None)
+    ipyconsole.create_client_for_kernel(connection_file)
     qtbot.waitUntil(lambda: len(ipyconsole.get_clients()) == 2)
 
     assert len(ipyconsole.get_clients()) == 2
@@ -1250,8 +1248,7 @@ def test_load_kernel_file(ipyconsole, qtbot, tmpdir):
     shell = ipyconsole.get_current_shellwidget()
     client = ipyconsole.get_current_client()
 
-    ipyconsole.get_widget()._create_client_for_kernel(
-        client.connection_file, None, None, None)
+    ipyconsole.create_client_for_kernel(client.connection_file)
     qtbot.waitUntil(lambda: len(ipyconsole.get_clients()) == 2)
 
     new_client = ipyconsole.get_clients()[1]
@@ -1333,8 +1330,7 @@ def test_stderr_file_is_removed_two_kernels(ipyconsole, qtbot, monkeypatch):
     client = ipyconsole.get_current_client()
 
     # New client with the same kernel
-    ipyconsole.get_widget()._create_client_for_kernel(
-        client.connection_file, None, None, None)
+    ipyconsole.create_client_for_kernel(client.connection_file)
     assert len(ipyconsole.get_widget().get_related_clients(client)) == 1
     other_client = ipyconsole.get_widget().get_related_clients(client)[0]
     assert client.stderr_obj.filename == other_client.stderr_obj.filename
@@ -1355,8 +1351,7 @@ def test_stderr_file_remains_two_kernels(ipyconsole, qtbot, monkeypatch):
     client = ipyconsole.get_current_client()
 
     # New client with the same kernel
-    ipyconsole.get_widget()._create_client_for_kernel(
-        client.connection_file, None, None, None)
+    ipyconsole.create_client_for_kernel(client.connection_file)
 
     assert len(ipyconsole.get_widget().get_related_clients(client)) == 1
     other_client = ipyconsole.get_widget().get_related_clients(client)[0]
@@ -2286,7 +2281,7 @@ def test_cwd_console_options(ipyconsole, qtbot, tmpdir):
 
     # Simulate a specific directory
     cwd_dir = str(tmpdir.mkdir('ipyconsole_cwd_test'))
-    ipyconsole._get_working_directory = lambda: cwd_dir
+    ipyconsole.get_widget().set_working_directory(cwd_dir)
 
     # Get cwd of new client and assert is the expected one
     assert get_cwd_of_new_client() == cwd_dir
@@ -2311,6 +2306,53 @@ def test_cwd_console_options(ipyconsole, qtbot, tmpdir):
 
     # Get cwd of new client and assert is the expected one
     assert get_cwd_of_new_client() == fixed_dir
+
+
+def test_startup_run_lines_project_directory(ipyconsole, qtbot, tmpdir):
+    """
+    Test 'startup/run_lines' config works with code from an active project.
+    """
+    project = tmpdir.mkdir('ipyconsole_project_test')
+    project_dir = str(project)
+    project_script = project.join('project_script.py')
+    project_script.write('from numpy import pi')
+
+    # Config spyder_pythonpath with the project path
+    ipyconsole.set_conf(
+        'spyder_pythonpath',
+        [project_dir],
+        section='main')
+
+    # Config console with project path
+    ipyconsole.set_conf(
+        'startup/run_lines',
+        'from project_script import *',
+        section='ipython_console')
+    ipyconsole.set_conf(
+        'console/use_project_or_home_directory',
+        True,
+        section='workingdir',
+    )
+    ipyconsole.get_widget().update_active_project_path(project_dir)
+
+    # Restart console
+    ipyconsole.restart()
+
+    # Check that the script was imnported
+    shell = ipyconsole.get_current_shellwidget()
+    qtbot.waitUntil(lambda: shell._prompt_html is not None,
+                    timeout=SHELL_TIMEOUT)
+    assert shell.get_value('pi')
+
+    # Reset config for the 'spyder_pythonpath' and 'startup/run_lines'
+    ipyconsole.set_conf(
+        'spyder_pythonpath',
+        [],
+        section='main')
+    ipyconsole.set_conf(
+        'startup/run_lines',
+        '',
+        section='ipython_console')
 
 
 if __name__ == "__main__":

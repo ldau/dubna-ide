@@ -66,17 +66,10 @@ class VariableExplorer(SpyderDockablePlugin, ShellConnectMixin):
 
     # ---- Public API
     # ------------------------------------------------------------------------
-    def current_widget(self):
-        """
-        Return the current widget displayed at the moment.
-
-        Returns
-        -------
-        spyder.plugins.plots.widgets.namespacebrowser.NamespaceBrowser
-        """
-        return self.get_widget().current_widget()
-
     def on_connection_to_external_spyder_kernel(self, shellwidget):
         """Send namespace view settings to the kernel."""
-        shellwidget.set_namespace_view_settings()
-        shellwidget.refresh_namespacebrowser()
+        widget = self.get_widget_for_shellwidget(shellwidget)
+        if widget is None:
+            return
+        widget.set_namespace_view_settings()
+        widget.refresh_namespacebrowser()

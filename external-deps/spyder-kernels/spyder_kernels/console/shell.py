@@ -13,9 +13,13 @@ Spyder shell for Jupyter kernels.
 # Standard library imports
 import bdb
 import sys
+import traceback
 
 # Third-party imports
 from ipykernel.zmqshell import ZMQInteractiveShell
+
+# Local imports
+from spyder_kernels.utils.mpl import automatic_backend
 
 
 class SpyderShell(ZMQInteractiveShell):
@@ -25,12 +29,6 @@ class SpyderShell(ZMQInteractiveShell):
         # Create _pdb_obj before __init__
         self._pdb_obj = None
         super(SpyderShell, self).__init__(*args, **kwargs)
-
-    # ---- Methods overriden by us.
-    def ask_exit(self):
-        """Engage the exit actions."""
-        self.kernel.frontend_comm.close_thread()
-        return super(SpyderShell, self).ask_exit()
 
     def _showtraceback(self, etype, evalue, stb):
         """
@@ -44,7 +42,18 @@ class SpyderShell(ZMQInteractiveShell):
             stb = ['']
         super(SpyderShell, self)._showtraceback(etype, evalue, stb)
 
-    # ---- For Pdb namespace integration
+    def enable_matplotlib(self, gui=None):
+        """Enable matplotlib."""
+        if gui is None or gui.lower() == "auto":
+            gui = automatic_backend()
+        gui, backend = super(SpyderShell, self).enable_matplotlib(gui)
+        try:
+            self.kernel.frontend_call(blocking=False).update_matplotlib_gui(gui)
+        except Exception:
+            pass
+        return gui, backend
+
+    # --- For Pdb namespace integration
     def get_local_scope(self, stack_depth):
         """Get local scope at given frame depth."""
         frame = sys._getframe(stack_depth + 1)
@@ -104,3 +113,22 @@ class SpyderShell(ZMQInteractiveShell):
     def user_ns(self, namespace):
         """Set user_ns."""
         self.__user_ns = namespace
+
+    def showtraceback(self, exc_tuple=None, filename=None, tb_offset=None,
+                      exception_only=False, running_compiled_code=False):
+        """Display the exception that just occurred."""
+        super(SpyderShell, self).showtraceback(
+            exc_tuple, filename, tb_offset,
+            exception_only, running_compiled_code)
+        if not exception_only:
+            try:
+                etype, value, tb = self._get_exc_info(exc_tuple)
+                stack = traceback.extract_tb(tb.tb_next)
+                for f_summary, f in zip(
+                        stack, traceback.walk_tb(tb.tb_next)):
+                    f_summary.locals = self.kernel.get_namespace_view(
+                        frame=f[0])
+                self.kernel.frontend_call(blocking=False).show_traceback(
+                    etype, value, stack)
+            except Exception:
+                return

@@ -1323,7 +1323,6 @@ class CodeEditor(TextEditBaseWidget):
             # after some time.
             self.clear_extra_selections('code_analysis_underline')
             self._process_code_analysis(underline=True)
-            self.update_extra_selections()
         except RuntimeError:
             # This is triggered when a codeeditor instance was removed
             # before the response can be processed.
@@ -1405,9 +1404,6 @@ class CodeEditor(TextEditBaseWidget):
                     data.selection_start = start
                     data.selection_end = end
 
-                    # Don't call highlight_selection with `update=True` so that
-                    # all underline selections are updated in bulk in
-                    # underline_errors.
                     self.highlight_selection('code_analysis_underline',
                                              data._selection(),
                                              underline_color=block.color)
@@ -2039,7 +2035,7 @@ class CodeEditor(TextEditBaseWidget):
                 # before sending that request here.
                 self._timer_sync_symbols_and_folding.timeout.disconnect(
                     self.sync_symbols_and_folding)
-            except TypeError:
+            except (TypeError, RuntimeError):
                 pass
 
             params = {
@@ -2270,7 +2266,7 @@ class CodeEditor(TextEditBaseWidget):
             oedata for oedata in self.highlighter._cell_list if good(oedata)]
 
         return sorted(
-            {oedata.get_block_number(): oedata
+            {oedata.block.blockNumber(): oedata
              for oedata in self.highlighter._cell_list}.items())
 
     def is_json(self):
@@ -2538,8 +2534,7 @@ class CodeEditor(TextEditBaseWidget):
     def highlight_selection(self, key, cursor, foreground_color=None,
                             background_color=None, underline_color=None,
                             outline_color=None,
-                            underline_style=QTextCharFormat.SingleUnderline,
-                            update=False):
+                            underline_style=QTextCharFormat.SingleUnderline):
 
         selection = self.get_selection(
             cursor, foreground_color, background_color, underline_color,
@@ -2549,8 +2544,6 @@ class CodeEditor(TextEditBaseWidget):
         extra_selections = self.get_extra_selections(key)
         extra_selections.append(selection)
         self.set_extra_selections(key, extra_selections)
-        if update:
-            self.update_extra_selections()
 
     def __mark_occurrences(self):
         """Marking occurrences of the currently selected word"""
@@ -2579,7 +2572,12 @@ class CodeEditor(TextEditBaseWidget):
         extra_selections = self.get_extra_selections('occurrences')
         first_occurrence = None
         while cursor:
-            self.occurrences.append(cursor.block())
+            block = cursor.block()
+            if not block.userData():
+                # Add user data to check block validity
+                block.setUserData(BlockUserData(self))
+            self.occurrences.append(block)
+
             selection = self.get_selection(cursor)
             if len(selection.cursor.selectedText()) > 0:
                 extra_selections.append(selection)
@@ -2591,7 +2589,6 @@ class CodeEditor(TextEditBaseWidget):
                         self.occurrence_color)
             cursor = self.__find_next(text, cursor)
         self.set_extra_selections('occurrences', extra_selections)
-        self.update_extra_selections()
 
         if len(self.occurrences) > 1 and self.occurrences[-1] == 0:
             # XXX: this is never happening with PySide but it's necessary
@@ -2618,16 +2615,25 @@ class CodeEditor(TextEditBaseWidget):
             return
         extra_selections = []
         self.found_results = []
+        has_unicode = len(text) != qstring_length(text)
         for match in regobj.finditer(text):
-            pos1, pos2 = sh.get_span(match)
+            if has_unicode:
+                pos1, pos2 = sh.get_span(match)
+            else:
+                pos1, pos2 = match.span()
             selection = TextDecoration(self.textCursor())
             selection.format.setBackground(self.found_results_color)
             selection.cursor.setPosition(pos1)
-            self.found_results.append(selection.cursor.block())
+
+            block = selection.cursor.block()
+            if not block.userData():
+                # Add user data to check block validity
+                block.setUserData(BlockUserData(self))
+            self.found_results.append(block)
+
             selection.cursor.setPosition(pos2, QTextCursor.KeepAnchor)
             extra_selections.append(selection)
         self.set_extra_selections('find', extra_selections)
-        self.update_extra_selections()
 
     def clear_found_results(self):
         """Clear found results highlighting"""
@@ -3225,8 +3231,7 @@ class CodeEditor(TextEditBaseWidget):
         self.clear_extra_selections('code_analysis_highlight')
         self.highlight_selection('code_analysis_highlight',
                                  block_data._selection(),
-                                 background_color=block_data.color,
-                                 update=True)
+                                 background_color=block_data.color)
         self.linenumberarea.update()
 
     def get_current_warnings(self):
@@ -4412,56 +4417,62 @@ class CodeEditor(TextEditBaseWidget):
             self, _("Clear all ouput"), icon=ima.icon('ipython_console'),
             triggered=self.clear_all_output)
         self.ipynb_convert_action = create_action(
-            self, _("Convert to Python script"), icon=ima.icon('python'),
+            self, _("Convert to Python file"), icon=ima.icon('python'),
             triggered=self.convert_notebook)
         self.gotodef_action = create_action(
             self, _("Go to definition"),
             shortcut=CONF.get_shortcut('editor', 'go to definition'),
             triggered=self.go_to_definition_from_cursor)
 
+        self.inspect_current_object_action = create_action(
+            self, _("Inspect current object"),
+            icon=ima.icon('MessageBoxInformation'),
+            shortcut=CONF.get_shortcut('editor', 'inspect current object'),
+            triggered=self.sig_show_object_info.emit)
+
         # Run actions
         self.run_cell_action = create_action(
             self, _("Run cell"), icon=ima.icon('run_cell'),
             shortcut=CONF.get_shortcut('editor', 'run cell'),
-            triggered=self.sig_run_cell.emit)
+            triggered=self.sig_run_cell)
         self.run_cell_and_advance_action = create_action(
             self, _("Run cell and advance"), icon=ima.icon('run_cell_advance'),
             shortcut=CONF.get_shortcut('editor', 'run cell and advance'),
-            triggered=self.sig_run_cell_and_advance.emit)
+            triggered=self.sig_run_cell_and_advance)
         self.re_run_last_cell_action = create_action(
             self, _("Re-run last cell"),
             shortcut=CONF.get_shortcut('editor', 're-run last cell'),
-            triggered=self.sig_re_run_last_cell.emit)
+            triggered=self.sig_re_run_last_cell)
         self.run_selection_action = create_action(
             self, _("Run &selection or current line"),
             icon=ima.icon('run_selection'),
             shortcut=CONF.get_shortcut('editor', 'run selection'),
-            triggered=self.sig_run_selection.emit)
+            triggered=self.sig_run_selection)
         self.run_to_line_action = create_action(
             self, _("Run to current line"),
             shortcut=CONF.get_shortcut('editor', 'run to line'),
-            triggered=self.sig_run_to_line.emit)
+            triggered=self.sig_run_to_line)
         self.run_from_line_action = create_action(
             self, _("Run from current line"),
             shortcut=CONF.get_shortcut('editor', 'run from line'),
-            triggered=self.sig_run_from_line.emit)
+            triggered=self.sig_run_from_line)
         self.debug_cell_action = create_action(
             self, _("Debug cell"), icon=ima.icon('debug_cell'),
             shortcut=CONF.get_shortcut('editor', 'debug cell'),
-            triggered=self.sig_debug_cell.emit)
+            triggered=self.sig_debug_cell)
 
         # Zoom actions
         zoom_in_action = create_action(
             self, _("Zoom in"), icon=ima.icon('zoom_in'),
             shortcut=QKeySequence(QKeySequence.ZoomIn),
-            triggered=self.zoom_in.emit)
+            triggered=self.zoom_in)
         zoom_out_action = create_action(
             self, _("Zoom out"), icon=ima.icon('zoom_out'),
             shortcut=QKeySequence(QKeySequence.ZoomOut),
-            triggered=self.zoom_out.emit)
+            triggered=self.zoom_out)
         zoom_reset_action = create_action(
             self, _("Zoom reset"), shortcut=QKeySequence("Ctrl+0"),
-            triggered=self.zoom_reset.emit)
+            triggered=self.zoom_reset)
 
         # Docstring
         writer = self.writer_docstring
@@ -4490,7 +4501,8 @@ class CodeEditor(TextEditBaseWidget):
         actions_1 = [self.run_cell_action, self.run_cell_and_advance_action,
                      self.re_run_last_cell_action, self.run_selection_action,
                      self.run_to_line_action, self.run_from_line_action,
-                     self.gotodef_action, None, self.undo_action,
+                     self.gotodef_action, self.inspect_current_object_action,
+                     None, self.undo_action,
                      self.redo_action, None, self.cut_action,
                      self.copy_action, self.paste_action, selectall_action]
         actions_2 = [None, zoom_in_action, zoom_out_action, zoom_reset_action,
@@ -4616,6 +4628,12 @@ class CodeEditor(TextEditBaseWidget):
             # Shift or Alt don't generate any text.
             # Fixes spyder-ide/spyder#11021
             self._start_completion_timer()
+
+        if event.modifiers() and self.is_completion_widget_visible():
+            # Hide completion widget before passing event modifiers
+            # since the keypress could be then a shortcut
+            # See spyder-ide/spyder#14806
+            self.completion_widget.hide()
 
         if key in {Qt.Key_Up, Qt.Key_Left, Qt.Key_Right, Qt.Key_Down}:
             self.hide_tooltip()
@@ -4968,7 +4986,7 @@ class CodeEditor(TextEditBaseWidget):
             cursor.select(QTextCursor.WordUnderCursor)
             self.clear_extra_selections('ctrl_click')
             self.highlight_selection(
-                'ctrl_click', cursor, update=True,
+                'ctrl_click', cursor,
                 foreground_color=self.ctrl_click_color,
                 underline_color=self.ctrl_click_color,
                 underline_style=QTextCharFormat.SingleUnderline)
@@ -4992,7 +5010,7 @@ class CodeEditor(TextEditBaseWidget):
 
             self.clear_extra_selections('ctrl_click')
             self.highlight_selection(
-                'ctrl_click', cursor, update=True,
+                'ctrl_click', cursor,
                 foreground_color=color,
                 underline_color=color,
                 underline_style=QTextCharFormat.SingleUnderline)

@@ -320,7 +320,11 @@ class ReadOnlyCollectionsModel(QAbstractTableModel):
             return False
 
     def fetchMore(self, index=QModelIndex(), number_to_fetch=None):
+        # fetch more data
         reminder = self.total_rows - self.rows_loaded
+        if reminder <= 0:
+            # Everything is loaded
+            return
         if number_to_fetch is not None:
             items_to_fetch = min(reminder, number_to_fetch)
         else:
@@ -602,7 +606,6 @@ class BaseTableView(QTableView, SpyderConfigurationAccessor):
         self.minmax_action = None
         self.rename_action = None
         self.duplicate_action = None
-        self.last_regex = ''
         self.view_action = None
         self.delegate = None
         self.proxy_model = None
@@ -1561,12 +1564,12 @@ class RemoteCollectionsEditorTableView(BaseTableView):
                  create_menu=False):
         BaseTableView.__init__(self, parent)
 
+        self.namespacebrowser = parent
         self.shellwidget = shellwidget
         self.var_properties = {}
         self.dictfilter = None
         self.delegate = None
         self.readonly = False
-        self.finder = None
 
         self.source_model = CollectionsModel(
             self, data, names=True,
@@ -1614,18 +1617,18 @@ class RemoteCollectionsEditorTableView(BaseTableView):
         except TypeError as e:
             QMessageBox.critical(self, _("Error"),
                                  "TypeError: %s" % to_text_string(e))
-        self.shellwidget.refresh_namespacebrowser()
+        self.namespacebrowser.refresh_namespacebrowser()
 
     def remove_values(self, names):
         """Remove values from data"""
         for name in names:
             self.shellwidget.remove_value(name)
-        self.shellwidget.refresh_namespacebrowser()
+        self.namespacebrowser.refresh_namespacebrowser()
 
     def copy_value(self, orig_name, new_name):
         """Copy value"""
         self.shellwidget.copy_value(orig_name, new_name)
-        self.shellwidget.refresh_namespacebrowser()
+        self.namespacebrowser.refresh_namespacebrowser()
 
     def is_list(self, name):
         """Return True if variable is a list, a tuple or a set"""
@@ -1689,12 +1692,12 @@ class RemoteCollectionsEditorTableView(BaseTableView):
         if self.var_properties:
             super().refresh_menu()
 
-    def set_regex(self, regex=None, reset=False):
+    def do_find(self, text):
         """Update the regex text for the variable finder."""
-        if reset or self.finder is None or not self.finder.text():
-            text = ''
-        else:
-            text = self.finder.text().replace(' ', '').lower()
+        text = text.replace(' ', '').lower()
+
+        # Make sure everything is loaded
+        self.source_model.load_all()
 
         self.proxy_model.set_filter(text)
         self.source_model.update_search_letters(text)
@@ -1702,8 +1705,6 @@ class RemoteCollectionsEditorTableView(BaseTableView):
         if text:
             # TODO: Use constants for column numbers
             self.sortByColumn(4, Qt.DescendingOrder)  # Col 4 for index
-
-        self.last_regex = regex
 
     def next_row(self):
         """Move to next row from currently selected row."""

@@ -107,11 +107,11 @@ To release a new version of Spyder you need to follow these steps:
 
 * Update the version of any packages required before the release in the following files:
 
-  - `setup.py` (look up for the Windows installer patch too)
+  - `setup.py` (look up for the `install_requires` variable and also for the `Loosen constraints to ensure dev versions still work` patch )
   - `spyder/dependencies.py`
-  - `requirements/conda.txt`
+  - `requirements/{main,windows,macos,linux}.yml`
   - `binder/environment.yml`
-  - *`spyder/plugins/ipythonconsole/widgets/main_widget.py` (look up for the constants `SPYDER_KERNELS_MIN_VERSION` and `SPYDER_KERNELS_MAX_VERSION`)
+  - `spyder/plugins/ipythonconsole/widgets/main_widget.py` (look up for the constants `SPYDER_KERNELS_MIN_VERSION` and `SPYDER_KERNELS_MAX_VERSION`)
 
 **Note**: Usually, the version of `spyder-kernels` for validation in the IPython Console only needs to be updated for minor or major releases of that package. For bugfix releases the value should remain the same to not hassle users using custom interpreters into updating `spyder-kernels` in their environments. However, this depends on the type of bugs resolved and if it's worthy to reinforce the need of an update even for those versions.
 
@@ -199,7 +199,7 @@ To release a new version of Spyder you need to follow these steps:
 
   - Don't forget to add new dependencies and update constraints on the rest of them. For that, you need to compare line by line the contents of the `recipe/meta.yaml` file in the feedstock with
 
-    https://github.com/spyder-ide/spyder/blob/5.x/requirements/conda.txt
+    https://github.com/spyder-ide/spyder/blob/5.x/setup.py
   - After merging, give a ping to `@anaconda-pkg-build` about the new release.
 
 * Publish release announcement to our [list](https://groups.google.com/group/spyderlib) (following [Announcements.md](Announcements.md)) after the installers have been built.

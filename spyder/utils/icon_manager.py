@@ -110,7 +110,7 @@ class IconManager():
 
         self._qtaargs = {
             'environment':             [('mdi.cube-outline',), {'color': self.MAIN_FG_COLOR}],
-            'drag-horizontal':         [('mdi.drag-horizontal',), {'color': self.MAIN_FG_COLOR}],
+            'drag_dock_widget':        [('mdi.drag-variant',), {'color': self.MAIN_FG_COLOR}],
             'format_letter_case':      [('mdi.format-letter-case',), {'color': self.MAIN_FG_COLOR}],
             'regex':                   [('mdi.regex',), {'color': self.MAIN_FG_COLOR}],
             'log':                     [('mdi.file-document',), {'color': self.MAIN_FG_COLOR}],
@@ -215,6 +215,7 @@ class IconManager():
             'vcs_commit':              [('mdi.source-commit',), {'color': SpyderPalette.ICON_3}],
             'vcs_browse':              [('mdi.source-repository',), {'color': SpyderPalette.ICON_3}],
             'fileimport':              [('mdi.download',), {'color': self.MAIN_FG_COLOR}],
+            'fileexport':              [('mdi.upload',), {'color': self.MAIN_FG_COLOR}],
             'options_less':            [('mdi.minus-box',), {'color': self.MAIN_FG_COLOR}],
             'options_more':            [('mdi.plus-box',), {'color': self.MAIN_FG_COLOR}],
             'ArrowDown':               [('mdi.arrow-down-bold-circle',), {'color': self.MAIN_FG_COLOR}],

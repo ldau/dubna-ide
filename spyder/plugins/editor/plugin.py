@@ -1300,11 +1300,13 @@ class Editor(SpyderPluginWidget, SpyderConfigurationObserver):
         named_options = dict(zip(option_names, options))
         for name, action in self.checkable_actions.items():
             if name in named_options:
-                section = 'completions'
                 if name == 'underline_errors':
                     section = 'editor'
+                    opt = 'underline_errors'
+                else:
+                    section = 'completions'
+                    opt = named_options[name]
 
-                opt = named_options[name]
                 state = self.get_option(opt, section=section)
 
                 # Avoid triggering the action when this action changes state
@@ -2286,7 +2288,7 @@ class Editor(SpyderPluginWidget, SpyderConfigurationObserver):
                 if ipyconsole:
                     current_sw = ipyconsole.get_current_shellwidget()
                     current_sw.sig_prompt_ready.connect(
-                        current_editor.sig_debug_stop[()].emit)
+                        current_editor.sig_debug_stop[()])
                     current_pdb_state = ipyconsole.get_pdb_state()
                     pdb_last_step = ipyconsole.get_pdb_last_step()
                     self.update_pdb_state(current_pdb_state, pdb_last_step)

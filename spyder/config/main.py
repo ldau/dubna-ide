@@ -298,7 +298,6 @@ DEFAULTS = [
               'show_hscrollbar': True,
               'max_recent_projects': 10,
               'visible_if_project_open': True,
-              'date_column': False,
               'single_click_to_open': False,
               'show_hidden': True,
               'size_column': False,
@@ -471,7 +470,7 @@ DEFAULTS = [
               'editor/cycle to previous file': 'Ctrl+PgUp',
               'editor/cycle to next file': 'Ctrl+PgDown',
               'editor/new file': "Ctrl+N",
-              'editor/open last closed':"Ctrl+Shift+T",
+              'editor/open last closed': "Ctrl+Shift+T",
               'editor/open file': "Ctrl+O",
               'editor/save file': "Ctrl+S",
               'editor/save all': "Ctrl+Alt+S",
@@ -618,7 +617,7 @@ NAME_MAP = {
             'scrollbar_position',
           ]
          ),
-        ('quick_layouts', []), # Empty list means use all options
+        ('quick_layouts', []),  # Empty list means use all options
         ('run', [
             'breakpoints',
             'configurations',

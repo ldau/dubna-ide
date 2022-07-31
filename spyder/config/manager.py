@@ -208,8 +208,7 @@ class ConfigurationManager(object):
 
         return path
 
-    # --- Observer pattern
-    # ------------------------------------------------------------------------
+    # Observer pattern
     def observe_configuration(self,
                               observer: ConfigurationObserver,
                               section: str,

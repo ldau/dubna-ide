@@ -44,47 +44,22 @@ NUMERIC_TYPES = tuple(list(INT_TYPES) + [float])
 #==============================================================================
 # Renamed/Reorganized modules
 #==============================================================================
-if PY2:
-    # Python 2
-    import __builtin__ as builtins
-    import ConfigParser as configparser
-    try:
-        import _winreg as winreg
-    except ImportError:
-        pass
-    from sys import maxint as maxsize
-    try:
-        import CStringIO as io
-    except ImportError:
-        import StringIO as io
-    try:
-        import cPickle as pickle
-    except ImportError:
-        import pickle
-    from UserDict import DictMixin as MutableMapping
-    from collections import MutableSequence
-    import thread as _thread
-    import repr as reprlib
-    import Queue
-    from time import clock as perf_counter
-    from base64 import decodestring as decodebytes
-else:
-    # Python 3
-    import builtins
-    import configparser
-    try:
-        import winreg
-    except ImportError:
-        pass
-    from sys import maxsize
-    import io
-    import pickle
-    from collections.abc import MutableMapping, MutableSequence
-    import _thread
-    import reprlib
-    import queue as Queue
-    from time import perf_counter
-    from base64 import decodebytes
+# Python 3
+import builtins
+import configparser
+try:
+    import winreg
+except ImportError:
+    pass
+from sys import maxsize
+import io
+import pickle
+from collections.abc import MutableMapping, MutableSequence
+import _thread
+import reprlib
+import queue as Queue
+from time import perf_counter
+from base64 import decodebytes
 
 
 #==============================================================================
@@ -109,15 +84,11 @@ def is_type_text_string(obj):
         # Python 3
         return type(obj) in [str, bytes]
 
+
 def is_text_string(obj):
     """Return True if `obj` is a text string, False if it is anything else,
     like binary data (Python 3) or QString (Python 2, PyQt API #1)"""
-    if PY2:
-        # Python 2
-        return isinstance(obj, basestring)
-    else:
-        # Python 3
-        return isinstance(obj, str)
+    return isinstance(obj, str)
 
 def is_binary_string(obj):
     """Return True if `obj` is a binary string, False if it is anything else"""
@@ -144,23 +115,13 @@ def is_unicode(obj):
 
 def to_text_string(obj, encoding=None):
     """Convert `obj` to (unicode) text string"""
-    if PY2:
-        if isinstance(obj, unicode):
-            return obj
-        # Python 2
-        if encoding is None:
-            return unicode(obj)
-        else:
-            return unicode(obj, encoding)
+    if encoding is None:
+        return str(obj)
+    elif isinstance(obj, str):
+        # In case this function is not used properly, this could happen
+        return obj
     else:
-        # Python 3
-        if encoding is None:
-            return str(obj)
-        elif isinstance(obj, str):
-            # In case this function is not used properly, this could happen
-            return obj
-        else:
-            return str(obj, encoding)
+        return str(obj, encoding)
 
 def to_binary_string(obj, encoding=None):
     """Convert `obj` to binary string (bytes in Python 3, str in Python 2)"""

@@ -357,9 +357,8 @@ def is_pynsist():
     return False
 
 
-#==============================================================================
 # Translations
-#==============================================================================
+
 LANG_FILE = get_conf_path('langconfig')
 DEFAULT_LANGUAGE = 'en'
 
@@ -494,8 +493,8 @@ def get_translation(modname, dirname=None):
             return to_text_string(x, "utf-8")
         return x
 
-    locale_path = get_module_data_path(dirname, relpath="locale",
-                                       attr_name='LOCALEPATH')
+    locale_path = get_module_data_path(
+        dirname, relpath="locale", attr_name='LOCALEPATH')
 
     # If LANG is defined in Ubuntu, a warning message is displayed,
     # so in Unix systems we define the LANGUAGE variable.
@@ -533,10 +532,9 @@ def get_translation(modname, dirname=None):
 _ = get_translation("spyder")
 
 
-#==============================================================================
 # Namespace Browser (Variable Explorer) configuration management
-#==============================================================================
-# Variable explorer display / check all elements data types for sequences:
+
+# Variable explorer display / check all elements' data types for sequences:
 # (when saving the variable explorer contents, check_all is True,
 CHECK_ALL = False  # XXX: If True, this should take too much to compute...
 
@@ -546,9 +544,8 @@ EXCLUDED_NAMES = ['nan', 'inf', 'infty', 'little_endian', 'colorbar_doc',
                   'sctypeNA', 'typeNA', 'False_', 'True_']
 
 
-#==============================================================================
 # Mac application utilities
-#==============================================================================
+
 def running_in_mac_app(pyexec=None):
     """
     Check if Python executable is located inside a standalone Mac app.
@@ -585,9 +582,8 @@ def get_mac_app_bundle_path():
         return None
 
 
-# =============================================================================
 # Micromamba
-# =============================================================================
+
 def get_spyder_umamba_path():
     """Return the path to the Micromamba executable bundled with Spyder."""
     if running_in_mac_app():
@@ -602,9 +598,8 @@ def get_spyder_umamba_path():
     return path
 
 
-#==============================================================================
 # Reset config files
-#==============================================================================
+
 SAVED_CONFIG_FILES = ('help', 'onlinehelp', 'path', 'pylint.results',
                       'spyder.ini', 'temp.py', 'temp.spydata', 'template.py',
                       'history.py', 'history_internal.py', 'workingdir',
